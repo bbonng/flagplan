@@ -84,6 +84,7 @@ canvas{display:block;border-radius:6px;touch-action:none;user-select:none;-webki
 .roster input{min-width:0;padding:7px 8px}
 .optstat{margin:2px 0 0;font-size:13px;font-weight:600;color:var(--danger)}
 .optstat.ok{color:var(--accent)}
+.optstat.idle{color:var(--muted);font-weight:500}
 .dot{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#10231A;border:2px solid #10231A;box-sizing:border-box}
 .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{flex:1 1 0;font:inherit;font-size:14px;font-weight:600;padding:9px 6px;border:0;border-right:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
@@ -180,7 +181,7 @@ canvas{display:block;border-radius:6px;touch-action:none;user-select:none;-webki
 (function(){
 const W=25, Y0=-9, Y1=21, H=Y1-Y0, D=Math.PI/180;
 const FONT='"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif';
-const KEY='ff-plan-proto-v2';
+const KEY='ff-plan-proto-v3';
 const PLAYERS=[
   {id:'qb',label:'QB',color:'#FFD23F',x:12.5,y:-5},
   {id:'c', label:'C', color:'#F1F1EC',x:12.5,y:0},
@@ -202,14 +203,12 @@ const clampPt=p=>[Math.min(W-0.3,Math.max(0.3,p[0])),Math.min(Y1-0.3,Math.max(Y0
 
 function basePlay(){return {name:'',desc:'',def:'none',
   players:PLAYERS.map(p=>({...p,name:'',opt:0})),defense:formOf('22'),lines:[],stamps:[]};}
-const EX_DESC='[경로와 역할] Y는 QB 앞을 지나며 받는 척하고 왼쪽으로 빠진다. X는 2초 기다렸다가 7야드 올라가서 안쪽으로 꺾는다. Z는 오른쪽 끝에서 길게 뛰고, C는 5야드 앞에 멈춘다.\n[수비 반응] 러셔와 가운데 수비가 Y의 페이크를 보고 Y 쪽으로 따라간다. 오른쪽 깊은 수비는 Z를 따라 내려간다.\n[공간] 가운데 수비가 비운 가운데 10야드 공간에 X가 들어가서 받는다(1옵션). 막히면 Z(2옵션), Y(3옵션), C(4옵션) 순서.';
+const EX_DESC='[경로와 역할] Y는 QB 앞을 지나며 받는 척하고 왼쪽으로 빠진다. X는 2초 기다렸다가 7야드 올라가서 안쪽으로 꺾는다. Z는 오른쪽 끝에서 길게 뛰고, C는 5야드 앞에 멈춘다.\n[수비 반응] 러셔와 가운데 수비가 Y의 페이크를 보고 Y 쪽으로 따라간다. 오른쪽 깊은 수비는 Z를 따라 내려간다.\n[공간] 가운데 수비가 비운 가운데 10야드 공간에 X가 들어가서 받는다.';
 function examplePlay(){
   const p=basePlay();
   p.name='예시) 늦게 출발';
   p.desc='Y가 QB 옆을 지나며 공을 받는 척한다(척). X는 2초 기다렸다가 출발해서, 수비가 Y를 따라 움직인 사이 가운데 빈 곳으로 꺾는다(1옵션). Z는 길게 뛰어 뒤쪽 수비를 끌고 간다(2옵션). Y는 척한 뒤 왼쪽으로 빠지고(3옵션), C는 5야드 앞에 멈춰 선다(4옵션).';
-  p.def='22'; p.defense=formOf('22');
   p.desc=EX_DESC;
-  const op={p1:1,p3:2,p2:3,c:4}; p.players.forEach(q=>{q.opt=op[q.id]||0;});
   p.lines=[
     {id:uid(),type:'run',owner:'c',end:'stop',pts:[[12.5,0],[12.5,4.5]]},
     {id:uid(),type:'run',owner:'p2',end:'arrow',pts:[[17,-1],[13.8,-4.2],[8,-4.2],[6,2]]},
@@ -660,8 +659,9 @@ function syncPanel(){
 }
 function renderOptStat(){
   const used=play().players.map(p=>p.opt), miss=[1,2,3,4].filter(n=>!used.includes(n)), el=$('#optstat');
-  el.className='optstat'+(miss.length?'':' ok');
-  el.textContent=miss.length?'아직 안 정한 옵션: '+miss.map(n=>n+'옵션').join(', '):'1~4옵션을 모두 정했어요';
+  const none=miss.length===4;
+  el.className='optstat'+(none?' idle':miss.length?'':' ok');
+  el.textContent=none?'그림을 다 그린 뒤 1~4옵션을 정해요':miss.length?'아직 안 정한 옵션: '+miss.map(n=>n+'옵션').join(', '):'1~4옵션을 모두 정했어요';
 }
 const names=$('#names');
 PLAYERS.forEach(p=>{
