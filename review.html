@@ -139,6 +139,10 @@ body.show .panel,body.show .hide-show,body.show .pdesc{display:none!important}
 body.show .dmain{grid-template-columns:1fr}
 @media (pointer:coarse){input,textarea,select{font-size:16px!important}}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.conn{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px;line-height:1.5}
+.conn .st{flex:1 1 220px}
+.conn input{width:150px;letter-spacing:2px;text-transform:uppercase}
+.conn .btn{min-height:40px}
 </style>
 </head>
 <body>
@@ -148,7 +152,12 @@ body.show .dmain{grid-template-columns:1fr}
     <h1 class="title"><small>FLAG FOOTBALL 수행평가 · 선생님</small>작전 평가판</h1>
     <select id="cls" aria-label="반"></select>
   </header>
-  <p class="banner">예시 데이터로 만든 화면이에요. 실제로는 학생들이 조 비밀번호로 제출한 작전이 여기에 바로 떠요. 연습 기록과 점수는 이 기기에만 임시 저장돼요.</p>
+  <div class="conn" id="conn">
+    <span class="st" id="connSt"></span>
+    <span id="keyBox" hidden><input id="inpKey" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="교사 열쇠" aria-label="교사 열쇠"> <button class="btn primary" id="btnKey">확인</button></span>
+    <button class="btn" id="btnRefresh">새로고침</button>
+  </div>
+  <p class="banner" id="banner">학생들이 조 비밀번호로 제출한 계획서가 반·조별로 떠요. 계획서 점수·실행 점수·연습 기록은 아직 이 패드에만 저장돼요.</p>
 
   <section id="overview">
     <p class="sum" id="sum"></p>
@@ -269,7 +278,37 @@ Object.entries(GROUPS).forEach(([g,v])=>{
   SAMPLE[g]={members:v.m,saved:v.t||'',plays:v.p?v.p.map((k,i)=>{ if(!k) return null; const p=TPL[k]();
     ORDER.forEach((id,j)=>{p.players.find(q=>q.id===id).name=v.m[(j+i)%v.m.length];}); return p;}):null};
 });
-const dataFor=c=>c==='2-3'?SAMPLE:{};
+const dataFor=c=>c==='lab'?SAMPLE:realFor(c);
+
+/* ---------- 실제 제출물 (작전 저장소: plan_teacher) ---------- */
+const STORE_URL_DEFAULT='https://script.google.com/macros/s/AKfycbz22iShqjxdRCj1ZANH3zElkEUhwedYTLBi3KbT3Ich6thOpoQDtzh5BT5vZHBHxylKag/exec';            // 선생님 Apps Script 웹 앱 주소(…/exec)
+const lsGet=k=>{try{return localStorage.getItem(k);}catch(e){return null;}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
+const lsDel=k=>{try{localStorage.removeItem(k);}catch(e){}};
+(function(){const q=new URLSearchParams(location.search).get('store'); if(q&&/^https:\/\/script\.google\.com\//.test(q)) lsSet('ff-plan-store',q);})();
+const storeUrl=()=>(lsGet('ff-plan-store')||STORE_URL_DEFAULT||'').trim();
+let REAL=null; try{REAL=JSON.parse(lsGet('ff-review-cache')||'null');}catch(e){REAL=null;}
+function fmtTime(iso){const t=Date.parse(iso); if(!isFinite(t)) return ''; const d=new Date(t); return (d.getMonth()+1)+'. '+d.getDate()+'. '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+function ago(iso){const t=Date.parse(iso); if(!isFinite(t)) return ''; const s=(Date.now()-t)/1000; if(s<60) return '방금'; if(s<3600) return Math.floor(s/60)+'분 전'; if(s<86400) return Math.floor(s/3600)+'시간 전'; return fmtTime(iso);}
+function normPlay(pl){
+  if(!pl||!((pl.lines&&pl.lines.length)||String(pl.name||'').trim())) return null;
+  const out={name:String(pl.name||''),desc:String(pl.desc||''),def:pl.def||'none',lines:Array.isArray(pl.lines)?pl.lines:[],stamps:Array.isArray(pl.stamps)?pl.stamps:[]};
+  out.defense=Array.isArray(pl.defense)&&pl.defense.length?pl.defense:formOf(out.def==='31'?'31':'22');
+  out.players=PL.map(d=>{const q=(pl.players||[]).find(x=>x.id===d.id)||{}; return {...d,x:isFinite(q.x)?q.x:d.x,y:isFinite(q.y)?q.y:d.y,name:String(q.name||''),opt:+q.opt||0};});
+  return out;
+}
+function realFor(c){
+  const n=parseInt(String(c).split('-')[1],10), out={}; if(!REAL||!n) return out;
+  REAL.teams.filter(t=>t.c===n).sort((a,b)=>a.t-b.t).forEach(t=>{
+    const p=REAL.plans.find(x=>x.c===n&&x.t===t.t); let o=null; try{o=p?JSON.parse(p.code):null;}catch(e){o=null;}
+    const plays=o&&Array.isArray(o.plays)?o.plays.slice(0,3).map(normPlay):null;
+    out[t.t]={members:o&&Array.isArray(o.members)?o.members.filter(Boolean):[],
+      saved:p?fmtTime(p.time)+(p.n>1?' ('+p.n+'번째 제출)':''):'',
+      plays:plays&&plays.some(Boolean)?plays:null};
+  });
+  return out;
+}
+
 
 /* ---------- 저장(임시) ---------- */
 let store={};
@@ -426,7 +465,7 @@ function cleanup(pts){pts=pts.slice();let ch=true;while(ch&&pts.length>2){ch=fal
 function straighten(raw,start){const pts=[start.slice()];let away=false;for(const q of raw){if(!away&&dist(q,start)<0.7)continue;away=true;pts.push(q.slice());}if(pts.length<2)return pts;return cleanup(rdp(pts,0.85)).map(clampPt);}
 
 /* ---------- 상태 ---------- */
-let cls='2-3', grp=null, pi=0, view='play', shownRep=null, rec=null, recPath=null, drag=null;
+let cls=(lsGet('ff-review-cls')||'2-1'), grp=null, pi=0, view='play', shownRep=null, rec=null, recPath=null, drag=null;
 const DATA=()=>dataFor(cls);
 const gk=()=>`${cls}|${grp}`;
 const repsOf=(g,i)=>store.reps[`${cls}|${g}|${i}`]||[];
@@ -442,16 +481,16 @@ function descParts(desc){
 /* ---------- 반 전체 ---------- */
 const clsSel=$('#cls');
 for(let i=1;i<=11;i++){const o=document.createElement('option');o.value='2-'+i;o.textContent='2-'+i+'반';clsSel.appendChild(o);}
-{const o=document.createElement('option');o.value='lab';o.textContent='연구회';clsSel.appendChild(o);}
+{const o=document.createElement('option');o.value='lab';o.textContent='예시 (연구회 시연)';clsSel.appendChild(o);}
 clsSel.value=cls;
-clsSel.addEventListener('change',()=>{cls=clsSel.value;closeDetail();renderOverview();});
+clsSel.addEventListener('change',()=>{cls=clsSel.value;lsSet('ff-review-cls',cls);closeDetail();renderOverview();});
 const clsName=()=>clsSel.options[clsSel.selectedIndex].text;
 
 function renderOverview(){
   const data=DATA(), grid=$('#grid'); grid.innerHTML='';
   const has=Object.keys(data).length;
   const sub=Object.values(data).filter(d=>d.plays).length;
-  $('#sum').innerHTML=has?`제출 <b>${sub}/${Object.keys(data).length}조</b> · 조를 누르면 작전과 평가 화면이 열려요`:'아직 제출한 조가 없어요. 학생들이 조 비밀번호로 저장하면 여기에 바로 떠요.';
+  $('#sum').innerHTML=has?`제출 <b>${sub}/${Object.keys(data).length}조</b> · 조를 누르면 작전과 평가 화면이 열려요`:(cls==='lab'?'':REAL?'이 반은 [조] 시트에 등록된 조가 없어요.':'위의 새로고침을 누르면 학생들이 낸 계획서를 받아 와요.');
   Object.keys(data).forEach(g=>{
     const d=data[g], plays=d.plays;
     const card=document.createElement('button'); card.className='card';
@@ -650,7 +689,34 @@ big.addEventListener('pointerup',endDraw); big.addEventListener('pointercancel',
 
 let rt=0;
 window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{if(grp!=null)drawBig();else drawThumbs();},120);});
+/* ---------- 받아 오기 ---------- */
+function connStatus(msg){ $('#connSt').textContent=msg; }
+async function fetchReal(){
+  const url=storeUrl();
+  if(!url){ connStatus('작전 저장소 주소가 아직 없어요'); return; }
+  const key=lsGet('ff-review-key');
+  if(!key){ $('#keyBox').hidden=false; connStatus('구글 시트 [작전판 > 교사 열쇠 보기]의 열쇠를 한 번만 넣어 주세요'); return; }
+  $('#keyBox').hidden=true; $('#btnRefresh').disabled=true;
+  connStatus((REAL?'마지막으로 받은 자료를 보여 주는 중 · ':'')+'최신 계획서를 받는 중…');
+  try{
+    const ctl=('AbortController' in window)?new AbortController():null, tm=setTimeout(()=>ctl&&ctl.abort(),25000);
+    const r=await fetch(url,{method:'POST',body:JSON.stringify({action:'plan_teacher',key}),headers:{'Content-Type':'text/plain;charset=utf-8'},redirect:'follow',signal:ctl?ctl.signal:undefined});
+    clearTimeout(tm); const j=await r.json();
+    if(!j.ok){ connStatus(j.msg||'받지 못했어요'); if(j.err==='key'){ lsDel('ff-review-key'); $('#keyBox').hidden=false; } return; }
+    REAL={teams:j.teams||[],plans:j.plans||[],closed:j.closed||'',at:new Date().toISOString()};
+    lsSet('ff-review-cache',JSON.stringify(REAL));
+    connStatus('계획서 '+REAL.plans.length+'조 · 방금 받음'+(REAL.closed?' · 제출 마감: '+REAL.closed:''));
+    if(grp==null) renderOverview();
+  }catch(e){
+    connStatus(REAL?('연결이 안 돼서 '+ago(REAL.at)+'에 받은 자료를 보여 줘요'):'저장소에 연결하지 못했어요. 인터넷을 확인해 주세요');
+  }finally{ $('#btnRefresh').disabled=false; }
+}
+$('#btnRefresh').addEventListener('click',fetchReal);
+$('#btnKey').addEventListener('click',()=>{const k=$('#inpKey').value.trim().toUpperCase(); if(!k) return; lsSet('ff-review-key',k); fetchReal();});
+$('#inpKey').addEventListener('keydown',e=>{if(e.key==='Enter') $('#btnKey').click();});
+if(REAL) connStatus('계획서 '+REAL.plans.length+'조 · '+ago(REAL.at)+' 받음');
 renderOverview();
+fetchReal();
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{if(grp!=null)drawBig();else drawThumbs();});
 })();
 </script>

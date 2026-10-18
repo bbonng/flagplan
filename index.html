@@ -761,7 +761,7 @@ let toastT=0;
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2300);}
 
 /* ---------- 조 로그인 · 계획서 제출 (작전 저장소: 공간작전판과 같은 시트·같은 조 비밀번호) ---------- */
-const STORE_URL_DEFAULT='';            // 선생님 Apps Script 웹 앱 주소(…/exec)
+const STORE_URL_DEFAULT='https://script.google.com/macros/s/AKfycbz22iShqjxdRCj1ZANH3zElkEUhwedYTLBi3KbT3Ich6thOpoQDtzh5BT5vZHBHxylKag/exec';            // 선생님 Apps Script 웹 앱 주소(…/exec)
 const PLAN_VER='1', TEAM_KEY='ff-plan-team', TEAM_TTL=50*60*1000;
 const lsGet=k=>{try{return localStorage.getItem(k);}catch(e){return null;}};
 const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
