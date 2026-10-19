@@ -281,7 +281,7 @@ Object.entries(GROUPS).forEach(([g,v])=>{
 const dataFor=c=>c==='lab'?SAMPLE:realFor(c);
 
 /* ---------- 실제 제출물 (작전 저장소: plan_teacher) ---------- */
-const STORE_URL_DEFAULT='https://script.google.com/macros/s/AKfycbz22iShqjxdRCj1ZANH3zElkEUhwedYTLBi3KbT3Ich6thOpoQDtzh5BT5vZHBHxylKag/exec';            // 선생님 Apps Script 웹 앱 주소(…/exec)
+const STORE_URL_DEFAULT='https://script.google.com/macros/s/AKfycbwGWT_LQ9aOliP8iT4pjGSKPjEFNMAtPuFgKTUa--ILpqv_8GJb4EfiGFOTGrYQ_ByWwA/exec';            // 선생님 Apps Script 웹 앱 주소(…/exec)
 const lsGet=k=>{try{return localStorage.getItem(k);}catch(e){return null;}};
 const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
 const lsDel=k=>{try{localStorage.removeItem(k);}catch(e){}};
