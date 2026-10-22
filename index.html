@@ -99,6 +99,7 @@ canvas{display:block;border-radius:6px;touch-action:none;user-select:none;-webki
 .sub{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .sub .st{font-size:13px;color:var(--muted);max-width:260px}
 .sub .st b{color:var(--ink)}
+.sub .st .warn{color:var(--danger);font-weight:700}
 .btnp{font:inherit;font-size:14px;font-weight:700;min-height:44px;padding:8px 16px;border-radius:10px;border:0;background:var(--accent);color:var(--accent-ink);cursor:pointer;touch-action:manipulation;transition:transform 120ms cubic-bezier(.23,1,.32,1)}
 .btnp.ghost{background:var(--chip);color:var(--ink)}
 .btnp:disabled{opacity:.45;cursor:default}
@@ -128,6 +129,7 @@ canvas{display:block;border-radius:6px;touch-action:none;user-select:none;-webki
       <div class="sub">
         <span class="st" id="subSt"></span>
         <button class="btnp ghost" id="btnOut" hidden>나가기</button>
+        <button class="btnp ghost" id="btnSave" hidden>저장</button>
         <button class="btnp" id="btnSub">조 로그인</button>
       </div>
     </div>
@@ -279,7 +281,16 @@ let mode='run', stampType='wait', stampVal=1, sel=null, drag=null;
 
 /* ---------- 저장 ---------- */
 let saveT=0;
-function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(KEY,JSON.stringify(app));}catch(e){}},250);}
+/* 서버 저장 상태: SAVED_SIG = 서버에 있는 것(초안·제출본)과 같은 그림의 지문. null이면 비교 안 함(로그인 전) */
+let SAVED_SIG=null, DIRTY=false, UI_READY=false;
+const hsh=str=>{let h=5381;for(let i=0;i<str.length;i++)h=((h*33)^str.charCodeAt(i))>>>0;return h.toString(36)+':'+str.length;};
+const sigOf=o=>hsh(JSON.stringify([o.members,o.plays]));
+const sigNow=()=>sigOf(app);
+function setSaved(sig){SAVED_SIG=sig; DIRTY=sig!==null&&sigNow()!==sig;
+  if(typeof SB!=='undefined'&&SB&&SB.team){SB.team.sig=sig; SB.team.savedAt=SB.savedAt; try{localStorage.setItem('ff-plan-team',JSON.stringify(SB.team));}catch(e){}}}
+function markClean(){setSaved(sigNow());}
+function checkDirty(){const d=SAVED_SIG!==null&&sigNow()!==SAVED_SIG; if(d!==DIRTY){DIRTY=d; if(UI_READY) renderSub();}}
+function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(KEY,JSON.stringify(app));}catch(e){} checkDirty();},250);}
 function pushHist(){const h=hist[app.cur];h.push(JSON.stringify(play()));if(h.length>60)h.shift();}
 function changed(){save();renderTabs();renderSel();updUndo();renderOptStat();draw();}
 
@@ -758,7 +769,7 @@ cls.addEventListener('change',()=>{app.cls=cls.value;save();});
 grp.addEventListener('change',()=>{app.grp=grp.value;save();});
 
 let toastT=0;
-function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2300);}
+function toast(msg,ms){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),ms||2300);}
 
 /* ---------- 조 로그인 · 계획서 제출 (작전 저장소: 공간작전판과 같은 시트·같은 조 비밀번호) ---------- */
 const STORE_URL_DEFAULT='https://script.google.com/macros/s/AKfycbwGWT_LQ9aOliP8iT4pjGSKPjEFNMAtPuFgKTUa--ILpqv_8GJb4EfiGFOTGrYQ_ByWwA/exec';            // 선생님 Apps Script 웹 앱 주소(…/exec)
@@ -779,17 +790,20 @@ async function api(action,body){
   }
   throw new Error('저장소에 연결하지 못했어요. 인터넷을 확인하고 다시 눌러 주세요. 그림은 이 기기에 남아 있어요');
 }
-const SB={team:null,closed:false,last:null};
+const SB={team:null,closed:false,last:null,savedAt:null,noDraft:false,warned:false};
+const PLAN_DEFAULT=()=>({plays:[examplePlay(),basePlay(),basePlay()],members:[]});
 const cNum=()=>parseInt(String(app.cls).split('-')[1],10), gNum=()=>parseInt(app.grp,10);
 function loadTeam(){try{const t=JSON.parse(lsGet(TEAM_KEY)||'null'); if(t&&t.c&&t.t&&t.pin&&Date.now()-t.at<TEAM_TTL) return t;}catch(e){} lsDel(TEAM_KEY); return null;}
+function agoAt(iso){const a=ago(iso); return a==='방금'?'방금':a+'에';}
 function ago(iso){const t=Date.parse(iso); if(!isFinite(t)) return ''; const s=(Date.now()-t)/1000; if(s<60) return '방금'; if(s<3600) return Math.floor(s/60)+'분 전'; if(s<86400) return Math.floor(s/3600)+'시간 전';
   const d=new Date(t); return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
 function renderSub(){
   const t=SB.team, st=$('#subSt'), b=$('#btnSub');
-  cls.disabled=grp.disabled=!!t; $('#btnOut').hidden=!t;
+  cls.disabled=grp.disabled=!!t; $('#btnOut').hidden=!t; $('#btnSave').hidden=!t;
   if(!t){ st.textContent=''; b.textContent='조 로그인'; b.disabled=false; return; }
   b.textContent='계획서 제출'; b.disabled=SB.closed;
-  st.innerHTML='<b>'+t.c+'반 '+t.t+'조</b> · '+(SB.closed?'제출이 마감됐어요':SB.last?('마지막 제출 '+ago(SB.last.time)+(SB.last.n>1?' ('+SB.last.n+'번째)':'')):'아직 제출 안 함');
+  const sv=SB.noDraft?'':DIRTY?'<span class="warn">저장 안 함</span>':SB.savedAt?('저장 '+ago(SB.savedAt)):'';
+  st.innerHTML='<b>'+t.c+'반 '+t.t+'조</b> · '+(sv?sv+' · ':'')+(SB.closed?'제출이 마감됐어요':SB.last?('제출 '+ago(SB.last.time)+(SB.last.n>1?' ('+SB.last.n+'번째)':'')):'아직 제출 안 함');
 }
 function openDlg(id){$('#'+id).hidden=false;}
 function closeDlg(id){$('#'+id).hidden=true;}
@@ -797,7 +811,12 @@ document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',
 document.querySelectorAll('.dlg').forEach(d=>d.addEventListener('click',e=>{if(e.target===d) d.hidden=true;}));
 document.addEventListener('keydown',e=>{if(e.key==='Escape') document.querySelectorAll('.dlg').forEach(d=>d.hidden=true);});
 $('#btnSub').addEventListener('click',()=>{ if(SB.team) openSubmit(); else openLogin(); });
-$('#btnOut').addEventListener('click',()=>{SB.team=null;SB.last=null;lsDel(TEAM_KEY);renderSub();toast('나갔어요. 그림은 이 기기에 남아 있어요');});
+function logout(){SB.team=null;SB.last=null;SB.savedAt=null;SB.warned=false;SAVED_SIG=null;DIRTY=false;lsDel(TEAM_KEY);renderSub();}
+$('#btnOut').addEventListener('click',()=>{
+  if(DIRTY&&!confirm('저장하지 않은 그림이 있어요.\n저장하지 않고 나갈까요? (그림은 이 기기에만 남아요)')) return;
+  logout(); toast('나갔어요. 그림은 이 기기에 남아 있어요');});
+$('#btnSave').addEventListener('click',()=>doSave(false));
+window.addEventListener('beforeunload',e=>{ if(SB.team&&DIRTY){e.preventDefault(); e.returnValue='';} });
 function openLogin(){
   $('#loginLead').textContent=app.cls+'반 '+app.grp+'조 비밀번호 4자리를 넣어 주세요. 반·조가 틀리면 취소하고 위에서 바꿔요.';
   $('#loginMsg').textContent=storeUrl()?'':'작전 저장소가 아직 연결되지 않았어요. 선생님께 알려 주세요';
@@ -825,13 +844,30 @@ async function doLogin(){
   try{
     const c=cNum(), t=gNum(), r=await api('plan_login',{c,t,pin}); msg.style.color='';
     if(!r.ok){msg.textContent=r.msg||'로그인하지 못했어요';return;}
-    SB.team={c,t,pin,at:Date.now()}; lsSet(TEAM_KEY,JSON.stringify(SB.team)); SB.closed=!!r.closed; SB.last=r.plan?{time:r.plan.time,n:r.plan.n}:null;
-    closeDlg('dlgLogin'); renderSub(); toast(c+'반 '+t+'조로 들어왔어요');
-    if(r.plan&&r.plan.code){
-      if(!localHasWork()||confirm(ago(r.plan.time)+'에 제출한 계획서가 있어요. 불러올까요?\n(불러오면 지금 이 기기의 그림은 제출한 것으로 바뀌어요)')){
-        try{applyPlan(JSON.parse(r.plan.code)); toast('제출했던 계획서를 불러왔어요');}catch(e){toast(e.message);}
+    const me=c+'-'+t, other=!!(app.owner&&app.owner!==me&&localHasWork()), ownerWas=app.owner;
+    SB.team={c,t,pin,at:Date.now(),base:r.draft?r.draft.time:''}; lsSet(TEAM_KEY,JSON.stringify(SB.team));
+    SB.closed=!!r.closed; SB.last=r.plan?{time:r.plan.time,n:r.plan.n}:null; SB.savedAt=r.draft?r.draft.time:null; SB.noDraft=!r.drafts; SB.warned=false;
+    closeDlg('dlgLogin');
+    // 서버에 있는 것 중 가장 최근 것 (저장한 초안 또는 제출본)
+    const src=[r.draft&&Object.assign({kind:'draft'},r.draft), r.plan&&Object.assign({kind:'plan'},r.plan)].filter(x=>x&&x.code)
+      .sort((a,b)=>(Date.parse(b.time)||0)-(Date.parse(a.time)||0))[0];
+    let note=c+'반 '+t+'조로 들어왔어요';
+    if(src){
+      let o=null; try{o=JSON.parse(src.code);}catch(e){}
+      const what=src.kind==='draft'?'저장한 계획서':'제출한 계획서';
+      if(o&&sigOf(o)===sigNow()) markClean();                      // 이 기기 그림과 같음
+      else if(o&&(other||!localHasWork()||confirm(agoAt(src.time)+' '+what+'가 있어요. 불러올까요?\n(취소하면 이 기기의 그림을 그대로 두고, [저장]하면 서버 것이 이 그림으로 바뀌어요)'))){
+        try{applyPlan(o); markClean(); note=agoAt(src.time)+' '+what+'를 불러왔어요';}catch(e){note=e.message; setSaved('');}
       }
+      else setSaved('');
+    }else{
+      if(other&&confirm('이 기기에 남은 그림은 '+ownerWas.replace('-','반 ')+'조 것이에요.\n지우고 우리 조 계획서를 새로 시작할까요?\n(취소하면 그대로 두고 이어 그려요)')){
+        applyPlan(PLAN_DEFAULT()); note=c+'반 '+t+'조 새 계획서를 시작해요';
+      }
+      setSaved('');
     }
+    app.owner=me; try{localStorage.setItem(KEY,JSON.stringify(app));}catch(e){}
+    renderSub(); toast(note,3200);
   }catch(e){msg.style.color=''; msg.textContent=e.message;}
   finally{btn.disabled=false;}
 }
@@ -865,14 +901,42 @@ async function doSubmit(){
     const r=await api('plan_save',{c:t.c,t:t.t,pin:t.pin,code,members:app.members,names:app.plays.map(p=>p.name),ver:PLAN_VER,id:Date.now().toString(36)+Math.random().toString(36).slice(2,8)});
     msg.style.color='';
     if(!r.ok){msg.textContent=r.msg||'제출하지 못했어요'; if(r.err==='closed'){SB.closed=true;renderSub();} if(r.err==='pin'||r.err==='team'){SB.team=null;lsDel(TEAM_KEY);renderSub();} return;}
-    SB.last={time:new Date().toISOString(),n:r.n}; closeDlg('dlgSub'); renderSub(); toast(t.c+'반 '+t.t+'조 계획서를 냈어요'+(r.n>1?' ('+r.n+'번째)':''));
+    SB.last={time:new Date().toISOString(),n:r.n}; markClean(); closeDlg('dlgSub'); renderSub(); toast(t.c+'반 '+t.t+'조 계획서를 냈어요'+(r.n>1?' ('+r.n+'번째)':''));
   }catch(e){msg.style.color=''; msg.textContent=e.message;}
   finally{btn.disabled=false;}
 }
-SB.team=loadTeam(); if(SB.team){app.cls='2-'+SB.team.c; app.grp=String(SB.team.t); cls.value=app.cls; grp.value=app.grp;}
+/* 저장: 서버의 우리 조 초안 칸에 덮어씀 (평가는 제출본으로만) */
+let saving=false;
+async function doSave(force){
+  const t=SB.team; if(!t){openLogin();return;} if(saving) return;
+  if(Date.now()-t.at>=TEAM_TTL){logout();toast('50분이 지나서 다시 로그인해야 해요');openLogin();return;}
+  if(SB.noDraft){toast('저장 기능이 아직 켜지지 않았어요. 선생님께 알려 주세요. 지금은 [계획서 제출]로 남겨 두면 돼요',4500);return;}
+  const b=$('#btnSave'); saving=true; b.disabled=true; b.textContent='저장 중…';
+  let again=false;
+  try{
+    const code=JSON.stringify({v:PLAN_VER,cls:app.cls,grp:app.grp,members:app.members,plays:app.plays}), sig=sigNow();
+    const r=await api('draft_save',{c:t.c,t:t.t,pin:t.pin,code,ver:PLAN_VER,base:t.base||'',force:!!force});
+    if(!r.ok){
+      if(r.err==='newer') again=confirm('다른 기기에서 '+agoAt(r.time)+' 더 최근 것을 저장했어요.\n이 기기 그림으로 바꿔 저장할까요?\n(취소하면 저장하지 않아요. 나갔다가 다시 로그인하면 그 최근 것을 불러올 수 있어요)');
+      else if(r.err==='action'){SB.noDraft=true; toast('저장 기능이 아직 켜지지 않았어요. 선생님께 알려 주세요. 지금은 [계획서 제출]로 남겨 두면 돼요',4500);}
+      else if(r.err==='pin'||r.err==='team'){logout(); toast(r.msg||'다시 로그인해 주세요',3500);}
+      else toast(r.msg||'저장하지 못했어요',3500);
+      return;
+    }
+    t.base=r.time; SB.savedAt=r.time; setSaved(sig);
+    toast('저장했어요. 다른 기기에서 로그인해도 이어 할 수 있어요',3000);
+  }catch(e){toast(e.message,4000);}
+  finally{saving=false; b.disabled=false; b.textContent='저장'; renderSub(); if(again) doSave(true);}
+}
+SB.team=loadTeam(); if(SB.team){SB.savedAt=SB.team.savedAt||null; SAVED_SIG=(SB.team.sig===undefined?null:SB.team.sig); DIRTY=SAVED_SIG!==null&&sigNow()!==SAVED_SIG;}
+if(SB.team){app.cls='2-'+SB.team.c; app.grp=String(SB.team.t); cls.value=app.cls; grp.value=app.grp;}
 renderSub();
-setInterval(()=>{ if(SB.team&&Date.now()-SB.team.at>=TEAM_TTL){SB.team=null;lsDel(TEAM_KEY);renderSub();toast('50분이 지나서 자동으로 나갔어요');} else if(SB.team) renderSub(); },30000);
+setInterval(()=>{
+  if(SB.team&&Date.now()-SB.team.at>=TEAM_TTL){logout();toast('50분이 지나서 자동으로 나갔어요. 그림은 이 기기에 남아 있어요',4000);}
+  else if(SB.team){ if(!SB.warned&&Date.now()-SB.team.at>=TEAM_TTL-5*60*1000){SB.warned=true; toast('5분 뒤 자동으로 나가요. 이어 하려면 [저장]을 눌러 두세요',6000);} renderSub(); }
+},30000);
 
+UI_READY=true;
 syncPanel(); renderTabs(); setMode('run'); updUndo();
 if(window.ResizeObserver) new ResizeObserver(resize).observe($('#fieldWrap'));
 window.addEventListener('resize',resize);
