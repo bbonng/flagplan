@@ -39,6 +39,17 @@ body{background:var(--bg);color:var(--ink);font-family:var(--body)}
 .title small{display:block;font-family:var(--body);font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.08em;margin-bottom:4px}
 select,input,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
 .banner{margin:0;font-size:13px;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:8px 12px;line-height:1.5}
+.banner.ok{border-style:solid;border-color:var(--ok-bg);color:var(--ok)}
+.banner.warn{border-style:solid;border-color:var(--warn);color:var(--warn);background:var(--warn-bg)}
+.stu-h .nm{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.onlyb{font:inherit;font-size:12px;font-weight:600;padding:3px 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--muted);cursor:pointer}
+.onlyb[aria-pressed="true"]{background:var(--chip);color:var(--ink);border-color:var(--ink)}
+.stu .ex-off{font-size:13px;color:var(--muted);margin:0}
+.orph{border:1px dashed var(--warn);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.orph h5{margin:0;font-size:14px;color:var(--warn)}
+.orph .hint{margin:0}
+.orow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px}
+.orow select{font:inherit;font-size:14px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
 .sum{font-size:14px;color:var(--muted);margin:0 0 10px}
 .sum b{color:var(--ink)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
@@ -157,7 +168,7 @@ body.show .dmain{grid-template-columns:1fr}
     <span id="keyBox" hidden><input id="inpKey" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="교사 열쇠" aria-label="교사 열쇠"> <button class="btn primary" id="btnKey">확인</button></span>
     <button class="btn" id="btnRefresh">새로고침</button>
   </div>
-  <p class="banner" id="banner">학생들이 조 비밀번호로 제출한 계획서가 반·조별로 떠요. 계획서 점수·실행 점수·연습 기록은 아직 이 패드에만 저장돼요.</p>
+  <p class="banner" id="banner" role="status" aria-live="polite">학생들이 조 비밀번호로 제출한 계획서가 반·조별로 떠요.</p>
 
   <section id="overview">
     <p class="sum" id="sum"></p>
@@ -333,6 +344,82 @@ if(!store.seeded){
   try{localStorage.setItem(KEY,JSON.stringify(store));}catch(e){}
 });
 function save(){try{localStorage.setItem(KEY,JSON.stringify(store));}catch(e){}}
+
+/* ---------- 선생님 시트 [평가] 탭에 저장 ----------
+   패드는 바로 쓰는 사본 + 아직 못 보낸 것(store.out)을 들고 있고, 시트가 기준이다.
+   시트 키: plan|반|조 · exec|반|조|이름 · reps|반|조|작전번호. 예시 반(lab)은 시트에 보내지 않는다. */
+store.out=store.out||{};
+let SRV=null, flushing=false, flushT=0, failAt=0;   // SRV: null 모름 · true 켜짐 · false 저장소 코드가 옛 판
+const cNo=c=>parseInt(String(c).split('-')[1],10);
+const rowKey=(kind,c,g,x)=>kind+'|'+cNo(c)+'|'+g+(x!=null?'|'+x:'');
+function valOf(k){const p=k.split('|'), lk='2-'+p[1]+'|'+p[2];
+  if(p[0]==='plan') return store.plan[lk]||0;
+  if(p[0]==='exec'){const e=(store.exec[lk]||{})[p.slice(3).join('|')]; return e?{score:e.score||0,memo:e.memo||'',only:!!e.only}:null;}
+  if(p[0]==='reps') return store.reps[lk+'|'+p[3]]||[];
+  return null;}
+function applyRow(k,v){const p=k.split('|'), lk='2-'+p[1]+'|'+p[2];
+  if(p[0]==='plan'){ if(v) store.plan[lk]=+v; else delete store.plan[lk]; }
+  else if(p[0]==='exec'){ const o=v||{}; (store.exec[lk]=store.exec[lk]||{})[p.slice(3).join('|')]={score:+o.score||0,memo:String(o.memo||''),only:!!o.only}; }
+  else if(p[0]==='reps'){ store.reps[lk+'|'+p[3]]=Array.isArray(v)?v:[]; }}
+function localKeys(){const out=[];
+  Object.keys(store.plan).forEach(lk=>{const [c,g]=lk.split('|'); if(cNo(c)>0&&store.plan[lk]) out.push(rowKey('plan',c,g));});
+  Object.keys(store.exec).forEach(lk=>{const [c,g]=lk.split('|'); if(!(cNo(c)>0)) return;
+    Object.keys(store.exec[lk]).forEach(n=>{const e=store.exec[lk][n]; if(e&&(e.score||e.memo||e.only)) out.push(rowKey('exec',c,g,n));});});
+  Object.keys(store.reps).forEach(lk=>{const [c,g,i]=lk.split('|'); if(cNo(c)>0&&store.reps[lk]&&store.reps[lk].length) out.push(rowKey('reps',c,g,i));});
+  return out;}
+/* 바뀐 것 표시: 반은 지금 보고 있는 반 */
+function mark(kind,g,x){ save(); if(!(cNo(cls)>0)) return; store.out[rowKey(kind,cls,g,x)]=1; save(); syncSt(); flushSoon(); }
+function flushSoon(ms){clearTimeout(flushT); flushT=setTimeout(flush,ms==null?1500:ms);}
+async function post(body,ms){
+  const ctl=('AbortController' in window)?new AbortController():null, tm=setTimeout(()=>ctl&&ctl.abort(),ms||25000);
+  try{const r=await fetch(storeUrl(),{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'text/plain;charset=utf-8'},redirect:'follow',signal:ctl?ctl.signal:undefined});
+    if(!r.ok) throw new Error('HTTP '+r.status); return await r.json();}
+  finally{clearTimeout(tm);}
+}
+async function flush(){
+  if(flushing||SRV!==true) { syncSt(); return; }
+  const ks=Object.keys(store.out); if(!ks.length){ syncSt(); return; }
+  const key=lsGet('ff-review-key'); if(!storeUrl()||!key) return;
+  flushing=true; syncSt();
+  const batch=ks.slice(0,150), snap=batch.map(k=>JSON.stringify(valOf(k)));
+  try{
+    const j=await post({action:'eval_set',key,rows:batch.map(k=>({k,v:valOf(k)}))});
+    if(j.ok){
+      batch.forEach((k,i)=>{ if(JSON.stringify(valOf(k))===snap[i]) delete store.out[k]; });   // 보내는 동안 또 바뀐 건 남김
+      (j.bad||[]).forEach(k=>{delete store.out[k]; (store.bad=store.bad||{})[k]=1;});
+      store.syncAt=new Date().toISOString(); failAt=0; save();
+    } else if(j.err==='action') SRV=false;
+    else if(j.err==='key'){ lsDel('ff-review-key'); $('#keyBox').hidden=false; failAt=Date.now(); }
+    else failAt=Date.now();
+  }catch(e){ failAt=Date.now(); }
+  flushing=false; syncSt();
+  if(Object.keys(store.out).length&&SRV===true) flushSoon(failAt?20000:300);
+}
+function syncSt(){
+  const b=$('#banner'), n=Object.keys(store.out).length, bad=Object.keys(store.bad||{}).length;
+  let cls_='', t='';
+  if(SRV===false){ cls_='warn'; t='점수·연습 기록이 아직 이 패드에만 저장돼요. 구글 시트의 저장소 코드를 새 버전으로 올리면 시트 [평가] 탭에 저장돼요.'; }
+  else if(SRV===null){ t=n?'시트에 보낼 점수·기록 '+n+'개가 이 패드에 있어요. 저장소에 연결되면 보내요.':'학생들이 조 비밀번호로 제출한 계획서가 반·조별로 떠요. 점수·메모·연습 기록은 선생님 구글 시트 [평가] 탭에 저장돼요.'; if(n) cls_='warn'; }
+  else if(flushing){ t='시트에 저장하는 중… ('+n+'개)'; }
+  else if(n){ cls_='warn'; t='시트에 아직 못 보낸 점수·기록 '+n+'개 · 이 패드에 보관 중이에요'+(failAt?'. 인터넷이 연결되면 저절로 다시 보내요':''); }
+  else { cls_='ok'; t='점수·메모·연습 기록이 모두 시트 [평가] 탭에 저장됐어요'+(store.syncAt?' · '+ago(store.syncAt):''); }
+  if(bad) t+=' · 시트에 들어가지 못한 기록 '+bad+'개(너무 김)';
+  b.className='banner'+(cls_?' '+cls_:''); b.textContent=t;
+}
+/* 시트에서 받은 평가를 패드에 반영 */
+function mergeEvals(rows){
+  const seen={};
+  rows.forEach(r=>{ if(!r||!r.k) return; seen[r.k]=1; if(store.out[r.k]) return; applyRow(r.k,r.v); });
+  if(!store.migrated){ localKeys().forEach(k=>{ if(!seen[k]) store.out[k]=1; }); store.migrated=true; }   // 처음 한 번: 이 패드에만 있던 점수 올리기
+  else localKeys().forEach(k=>{ if(seen[k]||store.out[k]) return; const p=k.split('|'), lk='2-'+p[1]+'|'+p[2];   // 시트에서 지운 줄은 패드에서도 지움
+    if(p[0]==='plan') delete store.plan[lk]; else if(p[0]==='exec'){ if(store.exec[lk]) delete store.exec[lk][p.slice(3).join('|')]; } else delete store.reps[lk+'|'+p[3]]; });
+  save();
+}
+function rerender(){
+  if(grp==null){ renderOverview(); return; }
+  if(view==='eval'){ if(!$('#stus').contains(document.activeElement)) renderEvalView(); }
+  else if(!rec) renderPlayView();
+}
 
 /* ---------- 그리기 ---------- */
 let R={ctx:null,s:20,w:0,h:0};
@@ -511,7 +598,7 @@ function renderOverview(){
       pill=ok?'<span class="pill ok">작전 3/3 · 옵션 완료</span>':`<span class="pill warn">작전 ${n}/3${plays.some(p=>p&&optCount(p)<optN(p))?' · 옵션 빠짐':''}</span>`;}
     const repN=[0,1,2].reduce((s,i)=>s+repsOf(g,i).length,0);
     const plan=store.plan[`${cls}|${g}`], ex=store.exec[`${cls}|${g}`]||{};
-    const graded=d.members.filter(n=>ex[n]&&ex[n].score).length;
+    const graded=d.members.filter(n=>ex[n]&&(ex[n].score||ex[n].only)).length;
     card.innerHTML=`<div class="row"><h3>${g}조</h3>${pill}</div><div class="members"></div><div class="thumbs"></div><div class="foot"></div>`;
     card.querySelector('.members').textContent=d.members.join(' · ');
     card.querySelector('.foot').textContent=plays?`연습 기록 ${repN}회 · 계획서 ${plan?plan+'점':'미채점'} · 실행 채점 ${graded}/${d.members.length}명 · 저장 ${d.saved}`:'아직 저장한 작전이 없어요';
@@ -591,7 +678,7 @@ function renderReps(){
     const b=document.createElement('button'); b.className='rep'; b.setAttribute('aria-pressed',String(shownRep===i));
     b.innerHTML=`<span class="n">${i+1}회</span><span class="t"></span><span class="x" data-del="${i}">지우기</span>`;
     b.querySelector('.t').textContent=repLine(p,r);
-    b.addEventListener('click',e=>{ if(e.target.dataset.del!=null){rs.splice(+e.target.dataset.del,1);shownRep=rs.length?rs.length-1:null;save();renderReps();drawBig();return;}
+    b.addEventListener('click',e=>{ if(e.target.dataset.del!=null){ if(!confirm((+e.target.dataset.del+1)+'회 연습 기록을 지울까요?')) return; rs.splice(+e.target.dataset.del,1);shownRep=rs.length?rs.length-1:null;mark('reps',grp,pi);renderReps();drawBig();return;}
       shownRep=shownRep===i?null:i; renderReps(); drawBig(); });
     box.appendChild(b);
   });
@@ -621,7 +708,7 @@ function renderRec(){
     wrap.querySelector('#pWho').appendChild(w);
   });
   const clip=wrap.querySelector('#clip'); clip.value=rec.clip; clip.addEventListener('input',()=>{rec.clip=clip.value.trim();});
-  wrap.querySelector('#recSave').addEventListener('click',()=>{const rs=reps();rs.push(rec);shownRep=rs.length-1;rec=null;recPath=null;save();renderPlayView();});
+  wrap.querySelector('#recSave').addEventListener('click',()=>{const rs=reps();rs.push(rec);shownRep=rs.length-1;rec=null;recPath=null;mark('reps',grp,pi);renderPlayView();});
   wrap.querySelector('#recCancel').addEventListener('click',()=>{rec=null;recPath=null;const rs=reps();shownRep=rs.length?rs.length-1:null;renderReps();renderRec();drawBig();});
 }
 
@@ -646,17 +733,19 @@ function renderEvalView(){
     row.appendChild(s); ch.appendChild(row);
   });
   const plan=store.plan[k]||0;
-  lvButtons($('#planLv'),plan,v=>{store.plan[k]=v;save();renderEvalView();});
+  lvButtons($('#planLv'),plan,v=>{store.plan[k]=v;mark('plan',grp);renderEvalView();});
   $('#planCrit').textContent=plan?PLAN_LV[plan]:'점수를 누르면 해당 기준이 여기에 보여요. 각 작전 설명은 「작전별 보기」에서 읽을 수 있어요.';
 
   const ex=store.exec[k]||(store.exec[k]={}), box=$('#stus'); box.innerHTML='';
   d.members.forEach(n=>{
     const e=ex[n]||(ex[n]={score:0,memo:''});
     const card=document.createElement('div'); card.className='stu';
-    card.innerHTML=`<div class="stu-h"><b></b><span class="tot"></span></div><div class="ev3"></div><div class="lv"></div><p class="crit"></p><input placeholder="메모 (예: 세 번째 연습부터 꺾는 지점 정확해짐)">`;
+    card.innerHTML=`<div class="stu-h"><span class="nm"><b></b><button class="onlyb" title="실행 평가 없이 계획서에만 참여하는 학생 (선생님 화면과 시트에만 보여요)">계획서만 참여</button></span><span class="tot"></span></div><div class="ev3"></div><div class="lv"></div><p class="crit"></p><input placeholder="메모 (예: 세 번째 연습부터 꺾는 지점 정확해짐)">`;
     card.querySelector('b').textContent=n;
+    const ob=card.querySelector('.onlyb'); ob.setAttribute('aria-pressed',String(!!e.only));
+    ob.addEventListener('click',()=>{e.only=!e.only; mark('exec',grp,n); renderEvalView();});
     const total=(plan||0)+(e.score||0);
-    card.querySelector('.tot').innerHTML=`계획서 ${plan||'-'} + 실행 ${e.score||'-'} = <strong>${plan&&e.score?total:'-'}</strong>`;
+    card.querySelector('.tot').innerHTML=e.only?`계획서 ${plan||'-'} · 실행 평가 제외`:`계획서 ${plan||'-'} + 실행 ${e.score||'-'} = <strong>${plan&&e.score?total:'-'}</strong>`;
     const ev3=card.querySelector('.ev3');
     d.plays.forEach((p,i)=>{
       const cell=document.createElement('div'); cell.className='evp';
@@ -669,11 +758,33 @@ function renderEvalView(){
         (seq.length?`<span class="seq">${seq.map(v=>`<span class="mk ${v}">${MK[v].t}</span>`).join(' ')}</span><span>수비 데려감 ${pulls}회</span>`:'<span class="none">연습 기록 없음</span>');
       ev3.appendChild(cell);
     });
-    lvButtons(card.querySelector('.lv'),e.score,v=>{e.score=v;save();renderEvalView();});
-    card.querySelector('.crit').textContent=e.score?EXEC_LV[e.score]:'';
-    const memo=card.querySelector('input'); memo.value=e.memo; memo.addEventListener('input',()=>{e.memo=memo.value;save();});
+    if(e.only){ const lv=card.querySelector('.lv'); const p=document.createElement('p'); p.className='ex-off'; p.textContent='계획서에만 참여해서 전술 실행은 채점하지 않아요.'; lv.replaceWith(p); }
+    else lvButtons(card.querySelector('.lv'),e.score,v=>{e.score=v;mark('exec',grp,n);renderEvalView();});
+    card.querySelector('.crit').textContent=!e.only&&e.score?EXEC_LV[e.score]:'';
+    const memo=card.querySelector('input'); memo.value=e.memo||''; memo.addEventListener('input',()=>{e.memo=memo.value;mark('exec',grp,n);});
     box.appendChild(card);
   });
+  /* 제출본에 없는 이름의 점수: 학생이 이름을 고쳐 다시 냈을 때 */
+  const orph=Object.keys(ex).filter(n=>!d.members.includes(n)&&ex[n]&&(ex[n].score||ex[n].memo||ex[n].only));
+  if(orph.length){
+    const o=document.createElement('div'); o.className='orph';
+    o.innerHTML='<h5>지금 조원 명단에 없는 이름의 점수</h5><p class="hint">학생이 이름을 고쳐서 다시 냈을 수 있어요. 맞는 학생에게 옮겨 주세요.</p>';
+    orph.forEach(n=>{
+      const e=ex[n], row=document.createElement('div'); row.className='orow';
+      const b=document.createElement('b'); b.textContent=n;
+      const info=document.createElement('span'); info.textContent=(e.only?'계획서만 참여':'실행 '+(e.score||'-'))+(e.memo?' · '+e.memo:'');
+      const sel=document.createElement('select'); sel.setAttribute('aria-label',n+' 점수를 옮길 학생');
+      [['','옮길 학생'],...d.members.map(m=>[m,m+(ex[m]&&(ex[m].score||ex[m].only)?' (점수 있음)':'')])].forEach(([v,t])=>{const op=document.createElement('option');op.value=v;op.textContent=t;sel.appendChild(op);});
+      const mv=document.createElement('button'); mv.className='btn'; mv.textContent='옮기기';
+      mv.addEventListener('click',()=>{const to=sel.value; if(!to) return;
+        if(ex[to]&&(ex[to].score||ex[to].memo||ex[to].only)&&!confirm(to+'에게 이미 점수나 메모가 있어요. '+n+'의 것으로 바꿀까요?')) return;
+        ex[to]={...e}; delete ex[n]; mark('exec',grp,to); mark('exec',grp,n); renderEvalView();});
+      const del=document.createElement('button'); del.className='btn ghost'; del.textContent='지우기';
+      del.addEventListener('click',()=>{ if(!confirm(n+'의 점수·메모를 지울까요?')) return; delete ex[n]; mark('exec',grp,n); renderEvalView();});
+      row.append(b,info,sel,mv,del); o.appendChild(row);
+    });
+    box.appendChild(o);
+  }
 }
 
 /* ---------- 큰 경기장 ---------- */
@@ -717,9 +828,11 @@ async function fetchReal(){
     if(!j.ok){ connStatus(j.msg||'받지 못했어요'); if(j.err==='key'){ lsDel('ff-review-key'); $('#keyBox').hidden=false; } return; }
     REAL={teams:j.teams||[],plans:j.plans||[],closed:j.closed||'',at:new Date().toISOString()};
     lsSet('ff-review-cache',JSON.stringify(REAL));
+    if(Array.isArray(j.evals)){ SRV=true; mergeEvals(j.evals); rerender(); flushSoon(200); } else SRV=false;
+    syncSt();
     connStatus('계획서 '+REAL.plans.length+'조 · 방금 받음'+(REAL.closed?' · 제출 마감: '+REAL.closed:''));
     if(grp==null) renderOverview();
-  }catch(e){
+  }catch(e){ failAt=Date.now(); syncSt();
     connStatus(REAL?('연결이 안 돼서 '+ago(REAL.at)+'에 받은 자료를 보여 줘요'):'저장소에 연결하지 못했어요. 인터넷을 확인해 주세요');
   }finally{ $('#btnRefresh').disabled=false; }
 }
@@ -728,7 +841,10 @@ $('#btnKey').addEventListener('click',()=>{const k=$('#inpKey').value.trim().toU
 $('#inpKey').addEventListener('keydown',e=>{if(e.key==='Enter') $('#btnKey').click();});
 if(REAL) connStatus('계획서 '+REAL.plans.length+'조 · '+ago(REAL.at)+' 받음');
 renderOverview();
+syncSt();
 fetchReal();
+window.addEventListener('online',()=>{ if(SRV===true) flushSoon(300); else fetchReal(); });
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden'&&Object.keys(store.out).length) flush(); });
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{if(grp!=null)drawBig();else drawThumbs();});
 })();
 </script>
