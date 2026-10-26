@@ -223,6 +223,7 @@ const PL=[
   {id:'p1',label:'X', color:'#FF8A3D',x:3,  y:-1},
   {id:'p2',label:'Y', color:'#5CD2F6',x:17, y:-1},
   {id:'p3',label:'Z', color:'#FF7BC2',x:22, y:-1}];
+const PL6=[PL[0],PL[1],PL[2],{id:'p4',label:'W',color:'#9BE564',x:8.6,y:-1},PL[3],PL[4]];   // 6명 조 (학생용 v3)
 const FORMS={
   '22':[{x:7,y:5.5},{x:18,y:5.5},{x:7,y:13.5},{x:18,y:13.5},{x:12.5,y:7.5,r:1}],
   '31':[{x:4.5,y:5.5},{x:12.5,y:5},{x:20.5,y:5.5},{x:12.5,y:13.5},{x:15.5,y:7.5,r:1}]};
@@ -290,18 +291,19 @@ const storeUrl=()=>(lsGet('ff-plan-store')||STORE_URL_DEFAULT||'').trim();
 let REAL=null; try{REAL=JSON.parse(lsGet('ff-review-cache')||'null');}catch(e){REAL=null;}
 function fmtTime(iso){const t=Date.parse(iso); if(!isFinite(t)) return ''; const d=new Date(t); return (d.getMonth()+1)+'. '+d.getDate()+'. '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
 function ago(iso){const t=Date.parse(iso); if(!isFinite(t)) return ''; const s=(Date.now()-t)/1000; if(s<60) return '방금'; if(s<3600) return Math.floor(s/60)+'분 전'; if(s<86400) return Math.floor(s/3600)+'시간 전'; return fmtTime(iso);}
-function normPlay(pl){
+function normPlay(pl,six){
   if(!pl||!((pl.lines&&pl.lines.length)||String(pl.name||'').trim())) return null;
   const out={name:String(pl.name||''),desc:String(pl.desc||''),def:pl.def||'none',lines:Array.isArray(pl.lines)?pl.lines:[],stamps:Array.isArray(pl.stamps)?pl.stamps:[]};
   out.defense=Array.isArray(pl.defense)&&pl.defense.length?pl.defense:formOf(out.def==='31'?'31':'22');
-  out.players=PL.map(d=>{const q=(pl.players||[]).find(x=>x.id===d.id)||{}; return {...d,x:isFinite(q.x)?q.x:d.x,y:isFinite(q.y)?q.y:d.y,name:String(q.name||''),opt:+q.opt||0};});
+  out.six=!!six;
+  out.players=(six?PL6:PL).map(d=>{const q=(pl.players||[]).find(x=>x.id===d.id)||{}; return {...d,x:isFinite(q.x)?q.x:d.x,y:isFinite(q.y)?q.y:d.y,name:String(q.name||''),opt:+q.opt||0};});
   return out;
 }
 function realFor(c){
   const n=parseInt(String(c).split('-')[1],10), out={}; if(!REAL||!n) return out;
   REAL.teams.filter(t=>t.c===n).sort((a,b)=>a.t-b.t).forEach(t=>{
     const p=REAL.plans.find(x=>x.c===n&&x.t===t.t); let o=null; try{o=p?JSON.parse(p.code):null;}catch(e){o=null;}
-    const plays=o&&Array.isArray(o.plays)?o.plays.slice(0,3).map(normPlay):null;
+    const plays=o&&Array.isArray(o.plays)?o.plays.slice(0,3).map(pl=>normPlay(pl,o.six)):null;
     out[t.t]={members:o&&Array.isArray(o.members)?o.members.filter(Boolean):[],
       saved:p?fmtTime(p.time)+(p.n>1?' ('+p.n+'번째 제출)':''):'',
       plays:plays&&plays.some(Boolean)?plays:null};
@@ -315,12 +317,21 @@ let store={};
 try{const s=localStorage.getItem(KEY); if(s) store=JSON.parse(s);}catch(e){}
 store.reps=store.reps||{}; store.plan=store.plan||{}; store.exec=store.exec||{};
 if(!store.seeded){
-  store.reps['2-3|1|0']=[
+  store.reps['lab|1|0']=[
     {at:'14:42',clip:'1',fol:{qb:'o',c:'o',p1:'t',p2:'t',p3:'o'},pull:{p3:true},paths:[{pid:'p2',pts:[[17,-1],[14,-4],[11.5,-4]]}]},
     {at:'14:47',clip:'2',fol:{qb:'o',c:'o',p1:'o',p2:'o',p3:'o'},pull:{p2:true,p3:true},paths:[]}];
-  store.reps['2-3|1|1']=[{at:'14:52',clip:'3',fol:{qb:'o',c:'t',p1:'o',p2:'o',p3:'x'},pull:{p2:true},paths:[{pid:'p3',pts:[[22,-1],[22,7],[15,7]]}]}];
+  store.reps['lab|1|1']=[{at:'14:52',clip:'3',fol:{qb:'o',c:'t',p1:'o',p2:'o',p3:'x'},pull:{p2:true},paths:[{pid:'p3',pts:[[22,-1],[22,7],[15,7]]}]}];
   store.seeded=true;
 }
+/* 예전 판이 시연용 연습 기록을 실제 2-3반 1조에 넣었던 것을 예시 반으로 옮김 (시연 기록과 똑같은 것만) */
+[['2-3|1|0',['14:42','14:47']],['2-3|1|1',['14:52']]].forEach(([k,ats])=>{
+  const r=store.reps[k]; if(!r||!r.length) return;
+  const demo=r.filter(x=>ats.includes(x.at)&&String(x.clip)===String(ats.indexOf(x.at)+(k.endsWith('|1')?3:1)));
+  if(!demo.length) return;
+  const lk=k.replace('2-3|','lab|'); store.reps[lk]=(store.reps[lk]&&store.reps[lk].length)?store.reps[lk]:demo;
+  store.reps[k]=r.filter(x=>!demo.includes(x)); if(!store.reps[k].length) delete store.reps[k];
+  try{localStorage.setItem(KEY,JSON.stringify(store));}catch(e){}
+});
 function save(){try{localStorage.setItem(KEY,JSON.stringify(store));}catch(e){}}
 
 /* ---------- 그리기 ---------- */
@@ -471,6 +482,7 @@ const gk=()=>`${cls}|${grp}`;
 const repsOf=(g,i)=>store.reps[`${cls}|${g}|${i}`]||[];
 const reps=()=>store.reps[`${cls}|${grp}|${pi}`]||(store.reps[`${cls}|${grp}|${pi}`]=[]);
 const optCount=p=>p.players.filter(q=>q.opt).length;
+const optN=p=>p&&p.six?5:4;   // 6명 조는 1~5옵션
 const now=()=>{const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');};
 function descParts(desc){
   const has=k=>{const m=desc.match(new RegExp('\\['+k+'\\]([^\\[]*)'));return m&&m[1].trim().length>3;};
@@ -495,8 +507,8 @@ function renderOverview(){
     const d=data[g], plays=d.plays;
     const card=document.createElement('button'); card.className='card';
     let pill='<span class="pill none">미제출</span>';
-    if(plays){const n=plays.filter(Boolean).length, ok=n===3&&plays.every(p=>optCount(p)===4);
-      pill=ok?'<span class="pill ok">작전 3/3 · 옵션 완료</span>':`<span class="pill warn">작전 ${n}/3${plays.some(p=>p&&optCount(p)<4)?' · 옵션 빠짐':''}</span>`;}
+    if(plays){const n=plays.filter(Boolean).length, ok=n===3&&plays.every(p=>optCount(p)===optN(p));
+      pill=ok?'<span class="pill ok">작전 3/3 · 옵션 완료</span>':`<span class="pill warn">작전 ${n}/3${plays.some(p=>p&&optCount(p)<optN(p))?' · 옵션 빠짐':''}</span>`;}
     const repN=[0,1,2].reduce((s,i)=>s+repsOf(g,i).length,0);
     const plan=store.plan[`${cls}|${g}`], ex=store.exec[`${cls}|${g}`]||{};
     const graded=d.members.filter(n=>ex[n]&&ex[n].score).length;
@@ -509,7 +521,7 @@ function renderOverview(){
       const p=plays&&plays[i];
       if(p){const cv=document.createElement('canvas'); cv.dataset.g=g; cv.dataset.i=i; box.appendChild(cv);
         const b=document.createElement('b'); b.textContent=p.name||'작전 '+(i+1);
-        const s=document.createElement('span'); const n=optCount(p); s.textContent='옵션 '+n+'/4'; if(n<4) s.className='miss';
+        const s=document.createElement('span'); const n=optCount(p); s.textContent='옵션 '+n+'/'+optN(p); if(n<optN(p)) s.className='miss';
         box.append(b,s);}
       else{const ph=document.createElement('div');ph.className='ph';ph.textContent='작전 '+(i+1)+' 없음';box.appendChild(ph);}
       th.appendChild(box);
@@ -550,7 +562,7 @@ function renderPlayView(){
   const d=DATA()[grp], tabs=$('#tabs'); tabs.innerHTML='';
   d.plays.forEach((p,i)=>{const b=document.createElement('button');b.className='tab';b.setAttribute('aria-selected',String(i===pi));b.disabled=!p;
     b.innerHTML='<b></b><span></span>';b.querySelector('b').textContent='작전 '+(i+1);
-    b.querySelector('span').textContent=p?`${p.name} · 옵션 ${optCount(p)}/4 · 연습 ${repsOf(grp,i).length}회`:'제출 안 함';
+    b.querySelector('span').textContent=p?`${p.name} · 옵션 ${optCount(p)}/${optN(p)} · 연습 ${repsOf(grp,i).length}회`:'제출 안 함';
     if(p) b.addEventListener('click',()=>{pi=i;rec=null;const rs=reps();shownRep=rs.length?rs.length-1:null;renderPlayView();});
     tabs.appendChild(b);});
   const p=curPlay();
@@ -564,7 +576,7 @@ function renderPlayView(){
     if(q.id==='qb'){o.className='optb qb';o.textContent='던짐';}
     else if(q.opt){o.className='optb';o.textContent=q.opt+'옵션';} else {o.className='optb no';o.textContent='옵션 없음';}
     r.appendChild(o); roles.appendChild(r);});
-  const n=optCount(p); $('#optSum').textContent=n===4?'4옵션 모두 정함':'옵션 '+n+'/4 · 빠진 게 있어요';
+  const n=optCount(p); $('#optSum').textContent=(p.six?'6명 · ':'')+(n===optN(p)?optN(p)+'옵션 모두 정함':'옵션 '+n+'/'+optN(p)+' · 빠진 게 있어요');
   renderReps(); renderRec(); drawBig();
 }
 function repLine(p,r){
@@ -587,7 +599,7 @@ function renderReps(){
 function renderRec(){
   const box=$('#recBox'), p=curPlay(); box.innerHTML='';
   if(!rec){const b=document.createElement('button');b.className='btn primary';b.textContent='+ 연습 기록하기';
-    b.addEventListener('click',()=>{rec={at:now(),clip:'',fol:{qb:'o',c:'o',p1:'o',p2:'o',p3:'o'},pull:{},paths:[]};recPath=null;shownRep=null;renderReps();renderRec();drawBig();});
+    b.addEventListener('click',()=>{rec={at:now(),clip:'',fol:Object.fromEntries(p.players.map(q=>[q.id,'o'])),pull:{},paths:[]};recPath=null;shownRep=null;renderReps();renderRec();drawBig();});
     box.appendChild(b);return;}
   const wrap=document.createElement('div'); wrap.className='rec';
   wrap.innerHTML=`<p>① 화살표대로 방향을 바꿔 뛰었나요? <span class="hint" style="font-weight:400">누를 때마다 ○ → △ → ✕</span></p><div class="pick fol" id="pFol"></div>
@@ -629,7 +641,7 @@ function renderEvalView(){
     else{const parts=descParts(p.desc||''), bits=[];
       if(parts){[['route','경로와 역할'],['react','수비 반응'],['space','공간']].forEach(([key,lab])=>bits.push(`<span class="${parts[key]?'ok-t':'warn-t'}">${parts[key]?'✓':'빈칸'} ${lab}</span>`));}
       else bits.push('<span class="warn-t">세 칸 틀 없이 자유 서술</span>');
-      if(optCount(p)<4) bits.push(`<span class="warn-t">옵션 ${optCount(p)}/4</span>`);
+      if(optCount(p)<optN(p)) bits.push(`<span class="warn-t">옵션 ${optCount(p)}/${optN(p)}</span>`);
       s.innerHTML=bits.join(' · ');}
     row.appendChild(s); ch.appendChild(row);
   });
