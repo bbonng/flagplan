@@ -154,6 +154,29 @@ body.show .dmain{grid-template-columns:1fr}
 .conn .st{flex:1 1 220px}
 .conn input{width:150px;letter-spacing:2px;text-transform:uppercase}
 .conn .btn{min-height:40px}
+/* 계획서 채점: 작전 3개를 한 화면에 */
+.gnav{display:inline-flex;gap:6px}
+.pgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:899px){.pgrid{grid-template-columns:1fr}}
+.pcol{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:0;min-height:0}
+.pcol h5{margin:0;font-family:var(--display);font-weight:400;font-size:18px;display:flex;justify-content:space-between;gap:6px;align-items:baseline;min-width:0}
+.pcol h5 span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.pcol h5 small{font-family:var(--body);font-size:12px;color:var(--muted);font-weight:600;flex:none}
+.pcol .cv{display:flex;justify-content:center;cursor:zoom-in;border:0;padding:0;background:transparent}
+.pcol canvas{display:block;border-radius:6px}
+.pcol .chips{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:12px}
+.pcol .pd{margin:0;font-size:13.5px;line-height:1.6;white-space:pre-wrap;overflow:auto;flex:1 1 auto;min-height:60px;overscroll-behavior:contain}
+.pcol .pd b{color:var(--accent)}
+.pcol.empty{display:grid;place-items:center;color:var(--muted);min-height:200px;border-style:dashed}
+.pscore{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;background:var(--surface);border:2px solid var(--accent);border-radius:12px;padding:10px 12px;margin-top:10px}
+.pscore > b{font-size:15px}
+.pscore .crit{flex:1 1 280px}
+.pscore .lv button{padding:10px 18px;font-size:16px}
+.dnote{margin:0 0 10px}
+body.detail .top,body.detail .conn{display:none}
+body.detail .banner{padding:4px 10px;font-size:12px}
+body.detail .app{padding-bottom:12px}
+.pdesc b{color:var(--accent)}
 </style>
 </head>
 <body>
@@ -179,8 +202,19 @@ body.show .dmain{grid-template-columns:1fr}
     <div class="dtop">
       <button class="btn ghost hide-show" id="back">← 반 전체</button>
       <h2 class="dtitle" id="dtitle"></h2>
-      <div class="seg hide-show" id="viewSeg"><button data-view="play">작전별 보기</button><button data-view="eval">조원 평가</button></div>
-      <button class="btn" id="showBtn" style="margin-left:auto">학생에게 보여주기</button>
+      <div class="seg hide-show" id="viewSeg"><button data-view="plan">계획서 채점</button><button data-view="play">작전별 보기</button><button data-view="eval">조원 평가</button></div>
+      <span class="gnav hide-show" style="margin-left:auto"><button class="btn" id="prevG">‹ 이전 조</button><button class="btn" id="nextG">다음 조 ›</button></span>
+      <button class="btn" id="showBtn">학생에게 보여주기</button>
+    </div>
+    <p class="banner warn dnote" id="dnote" hidden></p>
+
+    <div id="planView" hidden>
+      <div class="pgrid" id="pgrid"></div>
+      <div class="pscore" id="pscore">
+        <b>계획서 점수 <small style="font-weight:500;color:var(--muted)">(조 점수)</small></b>
+        <div class="lv" id="planLv2"></div>
+        <p class="crit" id="planCrit2"></p>
+      </div>
     </div>
 
     <div id="playView">
@@ -188,10 +222,12 @@ body.show .dmain{grid-template-columns:1fr}
       <div class="dmain">
         <div class="stage">
           <div class="fwrap" id="fwrap"><canvas id="big" aria-label="작전 그림"></canvas></div>
-          <h3 class="pname" id="pname"></h3>
-          <p class="pdesc" id="pdesc"></p>
         </div>
         <div class="panel">
+          <div class="box">
+            <h4><span class="pname" id="pname" style="font-size:19px"></span></h4>
+            <p class="pdesc" id="pdesc"></p>
+          </div>
           <div class="box">
             <h4>역할과 옵션 <small id="optSum"></small></h4>
             <div class="roles" id="roles"></div>
@@ -313,10 +349,13 @@ function normPlay(pl,six){
 function realFor(c){
   const n=parseInt(String(c).split('-')[1],10), out={}; if(!REAL||!n) return out;
   REAL.teams.filter(t=>t.c===n).sort((a,b)=>a.t-b.t).forEach(t=>{
-    const p=REAL.plans.find(x=>x.c===n&&x.t===t.t); let o=null; try{o=p?JSON.parse(p.code):null;}catch(e){o=null;}
+    const p=REAL.plans.find(x=>x.c===n&&x.t===t.t), dr=(REAL.drafts||[]).find(x=>x.c===n&&x.t===t.t);
+    const src=p||dr; let o=null; try{o=src?JSON.parse(src.code):null;}catch(e){o=null;}
     const plays=o&&Array.isArray(o.plays)?o.plays.slice(0,3).map(pl=>normPlay(pl,o.six)):null;
     out[t.t]={members:o&&Array.isArray(o.members)?o.members.filter(Boolean):[],
-      saved:p?fmtTime(p.time)+(p.n>1?' ('+p.n+'번째 제출)':''):'',
+      saved:p?fmtTime(p.time)+(p.n>1?' ('+p.n+'번째 제출)':''):dr?fmtTime(dr.time)+' (저장만 함)':'',
+      draft:!p&&!!dr,                                                       // 제출 안 하고 [저장]만 한 조
+      newer:p&&dr&&(Date.parse(dr.time)||0)>(Date.parse(p.time)||0)+60000?dr.time:null,   // 제출한 뒤 더 고쳐 저장함
       plays:plays&&plays.some(Boolean)?plays:null};
   });
   return out;
@@ -418,6 +457,7 @@ function mergeEvals(rows){
 function rerender(){
   if(grp==null){ renderOverview(); return; }
   if(view==='eval'){ if(!$('#stus').contains(document.activeElement)) renderEvalView(); }
+  else if(view==='plan') renderPlanView();
   else if(!rec) renderPlayView();
 }
 
@@ -483,7 +523,7 @@ function drawPlayer(p,showName){
   const c=R.ctx,x=sx(p.x),y=sy(p.y),r=R.s*0.95;
   c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fillStyle=p.color;c.fill();c.lineWidth=R.s<10?1.2:2.5;c.strokeStyle='#10231A';c.stroke();
   if(R.s>=7){c.fillStyle='#10231A';c.textAlign='center';c.textBaseline='middle';c.font=`700 ${p.label.length>1?r*0.8:r*1.05}px ${FONT}`;c.fillText(p.label,x,y+1);}
-  if(showName&&p.name&&R.s>=12){
+  if(showName&&p.name&&R.s>=(R.nameMin||12)){
     c.font=`600 ${Math.max(11,R.s*0.62)}px ${FONT}`;c.textBaseline='top';c.lineJoin='round';
     c.lineWidth=3.5;c.strokeStyle='rgba(8,28,18,.9)';c.strokeText(p.name,x,y+r+2);c.fillStyle='#fff';c.fillText(p.name,x,y+r+2);
   }
@@ -543,7 +583,7 @@ function drawRep(play,rep){
   });
 }
 function render(cv,w,play,opts){
-  opts=opts||{}; setup(cv,w); drawField();
+  opts=opts||{}; setup(cv,w); R.nameMin=opts.nameMin||12; drawField();
   const dim=opts.rep?0.6:1;
   play.stamps.filter(s=>s.type==='zone').forEach(drawZone);
   play.lines.forEach(l=>drawLine(play,l,dim));
@@ -563,7 +603,7 @@ function cleanup(pts){pts=pts.slice();let ch=true;while(ch&&pts.length>2){ch=fal
 function straighten(raw,start){const pts=[start.slice()];let away=false;for(const q of raw){if(!away&&dist(q,start)<0.7)continue;away=true;pts.push(q.slice());}if(pts.length<2)return pts;return cleanup(rdp(pts,0.85)).map(clampPt);}
 
 /* ---------- 상태 ---------- */
-let cls=(lsGet('ff-review-cls')||'2-1'), grp=null, pi=0, view='play', shownRep=null, rec=null, recPath=null, drag=null;
+let cls=(lsGet('ff-review-cls')||'2-1'), grp=null, pi=0, view='plan', shownRep=null, rec=null, recPath=null, drag=null;
 const DATA=()=>dataFor(cls);
 const gk=()=>`${cls}|${grp}`;
 const repsOf=(g,i)=>store.reps[`${cls}|${g}|${i}`]||[];
@@ -588,20 +628,21 @@ const clsName=()=>clsSel.options[clsSel.selectedIndex].text;
 function renderOverview(){
   const data=DATA(), grid=$('#grid'); grid.innerHTML='';
   const has=Object.keys(data).length;
-  const sub=Object.values(data).filter(d=>d.plays).length;
-  $('#sum').innerHTML=has?`제출 <b>${sub}/${Object.keys(data).length}조</b> · 조를 누르면 작전과 평가 화면이 열려요`:(cls==='lab'?'':REAL?'이 반은 [조] 시트에 등록된 조가 없어요.':'위의 새로고침을 누르면 학생들이 낸 계획서를 받아 와요.');
+  const sub=Object.values(data).filter(d=>d.plays&&!d.draft).length, drn=Object.values(data).filter(d=>d.plays&&d.draft).length;
+  $('#sum').innerHTML=has?`제출 <b>${sub}/${Object.keys(data).length}조</b>${drn?` · <span class="warn-t">저장만 하고 제출 안 한 조 ${drn}</span>`:''} · 조를 누르면 작전 3개와 점수 화면이 열려요`:(cls==='lab'?'':REAL?'이 반은 [조] 시트에 등록된 조가 없어요.':'위의 새로고침을 누르면 학생들이 낸 계획서를 받아 와요.');
   Object.keys(data).forEach(g=>{
     const d=data[g], plays=d.plays;
     const card=document.createElement('button'); card.className='card';
     let pill='<span class="pill none">미제출</span>';
-    if(plays){const n=plays.filter(Boolean).length, ok=n===3&&plays.every(p=>optCount(p)===optN(p));
+    if(plays&&d.draft) pill='<span class="pill warn">제출 안 함 · 저장본 있음</span>';
+    else if(plays){const n=plays.filter(Boolean).length, ok=n===3&&plays.every(p=>optCount(p)===optN(p));
       pill=ok?'<span class="pill ok">작전 3/3 · 옵션 완료</span>':`<span class="pill warn">작전 ${n}/3${plays.some(p=>p&&optCount(p)<optN(p))?' · 옵션 빠짐':''}</span>`;}
     const repN=[0,1,2].reduce((s,i)=>s+repsOf(g,i).length,0);
     const plan=store.plan[`${cls}|${g}`], ex=store.exec[`${cls}|${g}`]||{};
     const graded=d.members.filter(n=>ex[n]&&(ex[n].score||ex[n].only)).length;
     card.innerHTML=`<div class="row"><h3>${g}조</h3>${pill}</div><div class="members"></div><div class="thumbs"></div><div class="foot"></div>`;
     card.querySelector('.members').textContent=d.members.join(' · ');
-    card.querySelector('.foot').textContent=plays?`연습 기록 ${repN}회 · 계획서 ${plan?plan+'점':'미채점'} · 실행 채점 ${graded}/${d.members.length}명 · 저장 ${d.saved}`:'아직 저장한 작전이 없어요';
+    card.querySelector('.foot').textContent=plays?`연습 기록 ${repN}회 · 계획서 ${plan?plan+'점':'미채점'} · 실행 채점 ${graded}/${d.members.length}명 · ${d.draft?'':'제출 '}${d.saved}${d.newer?' · 제출 뒤 다시 고침':''}`:'아직 저장한 작전이 없어요';
     const th=card.querySelector('.thumbs');
     [0,1,2].forEach(i=>{
       const box=document.createElement('div'); box.className='th';
@@ -627,12 +668,17 @@ function drawThumbs(){
 
 /* ---------- 조 상세 ---------- */
 function curPlay(){return DATA()[grp].plays[pi];}
-function openDetail(g){
-  grp=g; pi=DATA()[g].plays.findIndex(Boolean); rec=null; view='play';
+function openDetail(g,keepView){
+  grp=g; pi=DATA()[g].plays.findIndex(Boolean); rec=null; if(!keepView) view='plan';
   const rs=reps(); shownRep=rs.length?rs.length-1:null;
+  document.body.classList.add('detail');
   $('#overview').hidden=true; $('#detail').hidden=false; window.scrollTo(0,0); renderDetail();
 }
-function closeDetail(){grp=null;rec=null;document.body.classList.remove('show');$('#detail').hidden=true;$('#overview').hidden=false;$('#showBtn').textContent='학생에게 보여주기';}
+const navGroups=()=>{const d=DATA();return Object.keys(d).filter(g=>d[g].plays).sort((a,b)=>a-b);};
+function stepGroup(dir){const gs=navGroups(), i=gs.indexOf(String(grp)), n=gs[i+dir]; if(n!=null){ if(document.activeElement) document.activeElement.blur(); openDetail(n,true);} }
+$('#prevG').addEventListener('click',()=>stepGroup(-1));
+$('#nextG').addEventListener('click',()=>stepGroup(1));
+function closeDetail(){grp=null;rec=null;document.body.classList.remove('show','detail');$('#detail').hidden=true;$('#overview').hidden=false;$('#showBtn').textContent='학생에게 보여주기';}
 $('#back').addEventListener('click',()=>{closeDetail();renderOverview();});
 $('#showBtn').addEventListener('click',()=>{
   if(view!=='play'){view='play';renderDetail();}
@@ -642,8 +688,51 @@ document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',(
 function renderDetail(){
   $('#dtitle').textContent=`${clsName()} ${grp}조`;
   document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===view)));
-  $('#playView').hidden=view!=='play'; $('#evalView').hidden=view!=='eval';
-  if(view==='play') renderPlayView(); else renderEvalView();
+  $('#planView').hidden=view!=='plan'; $('#playView').hidden=view!=='play'; $('#evalView').hidden=view!=='eval';
+  const d=DATA()[grp], gs=navGroups(), i=gs.indexOf(String(grp));
+  $('#prevG').disabled=i<=0; $('#nextG').disabled=i<0||i>=gs.length-1;
+  const note=$('#dnote');
+  if(d.draft){note.hidden=false; note.textContent='이 조는 아직 [계획서 제출]을 하지 않았어요. 학생이 [저장]해 둔 것을 보여 줘요 ('+d.saved+'). 제출하라고 알려 주세요.';}
+  else if(d.newer){note.hidden=false; note.textContent='이 조는 제출한 뒤 '+ago(d.newer)+' 다시 고쳐 저장했어요. 여기 보이는 건 제출본이에요. 고친 걸로 평가받으려면 다시 [제출]해야 해요.';}
+  else note.hidden=true;
+  if(view==='plan') renderPlanView(); else if(view==='play') renderPlayView(); else renderEvalView();
+}
+/* ---------- 계획서 채점: 작전 3개 + 설명 + 조 점수를 한 화면에 ---------- */
+function descNode(el,txt){ el.textContent=''; String(txt||'').split(/(\[[^\]\n]{1,12}\])/).forEach(part=>{
+  if(/^\[[^\]]+\]$/.test(part)){const b=document.createElement('b');b.textContent=part;el.appendChild(b);} else if(part) el.appendChild(document.createTextNode(part)); }); }
+function renderPlanView(){
+  const d=DATA()[grp], k=gk(), box=$('#pgrid'); box.innerHTML=''; box.style.height='';
+  const cvs=[];
+  d.plays.forEach((p,i)=>{
+    const col=document.createElement('div'); col.className='pcol'+(p?'':' empty');
+    if(!p){col.textContent='작전 '+(i+1)+' 제출 안 함'; box.appendChild(col); return;}
+    col.innerHTML='<h5><span></span><small></small></h5><button class="cv" title="크게 보기"><canvas></canvas></button><div class="chips"></div><p class="pd"></p>';
+    col.querySelector('h5 span').textContent=(i+1)+'. '+(p.name||'(이름 없음)');
+    const n=optCount(p); const sm=col.querySelector('h5 small'); sm.textContent='옵션 '+n+'/'+optN(p); if(n<optN(p)) sm.className='warn-t';
+    const parts=descParts(p.desc||''), bits=[];
+    if(parts) [['route','경로와 역할'],['react','수비 반응'],['space','공간']].forEach(([key,lab])=>bits.push(`<span class="${parts[key]?'ok-t':'warn-t'}">${parts[key]?'✓':'빈칸'} ${lab}</span>`));
+    else bits.push('<span class="warn-t">세 칸 틀 없이 자유 서술</span>');
+    col.querySelector('.chips').innerHTML=bits.join('');
+    descNode(col.querySelector('.pd'),p.desc||'(설명 없음)');
+    col.querySelector('.cv').addEventListener('click',()=>{pi=i;rec=null;const rs=reps();shownRep=rs.length?rs.length-1:null;view='play';renderDetail();});
+    box.appendChild(col); cvs.push([col,p]);
+  });
+  const plan=store.plan[k]||0;
+  lvButtons($('#planLv2'),plan,v=>{store.plan[k]=v;mark('plan',grp);renderPlanView();});
+  $('#planCrit2').textContent=plan?PLAN_LV[plan]:'세 작전을 보고 점수를 눌러요. 그림을 누르면 크게 볼 수 있어요.';
+  sizePlanView(cvs);
+}
+function sizePlanView(cvs){
+  const box=$('#pgrid'); if(!cvs) cvs=[...box.querySelectorAll('.pcol:not(.empty)')].map((c,i)=>[c,null]);
+  const wide=window.innerWidth>=900;
+  let avail=0;
+  if(wide){ const top=box.getBoundingClientRect().top+window.scrollY; avail=Math.max(420,window.innerHeight-top-$('#pscore').offsetHeight-10-14); box.style.height=avail+'px'; }
+  cvs.forEach(([col,p])=>{
+    const cv=col.querySelector('canvas'); p=p||DATA()[grp].plays[[...box.children].indexOf(col)];
+    const colW=col.clientWidth-20; let w=colW;
+    if(wide){ const fixed=col.querySelector('h5').offsetHeight+col.querySelector('.chips').offsetHeight+20+18+110; w=Math.min(colW,Math.floor((avail-fixed)*W/H)); }
+    render(cv,Math.max(160,w),p,{nameMin:9});
+  });
 }
 function renderPlayView(){
   const d=DATA()[grp], tabs=$('#tabs'); tabs.innerHTML='';
@@ -653,7 +742,7 @@ function renderPlayView(){
     if(p) b.addEventListener('click',()=>{pi=i;rec=null;const rs=reps();shownRep=rs.length?rs.length-1:null;renderPlayView();});
     tabs.appendChild(b);});
   const p=curPlay();
-  $('#pname').textContent=p.name; $('#pdesc').textContent=p.desc;
+  $('#pname').textContent=p.name; descNode($('#pdesc'),p.desc);
   const ord=[...p.players].sort((a,b)=>(a.id==='qb'?-1:b.id==='qb'?1:(a.opt||9)-(b.opt||9)));
   const roles=$('#roles'); roles.innerHTML='';
   ord.forEach(q=>{const r=document.createElement('div');r.className='role';
@@ -734,7 +823,7 @@ function renderEvalView(){
   });
   const plan=store.plan[k]||0;
   lvButtons($('#planLv'),plan,v=>{store.plan[k]=v;mark('plan',grp);renderEvalView();});
-  $('#planCrit').textContent=plan?PLAN_LV[plan]:'점수를 누르면 해당 기준이 여기에 보여요. 각 작전 설명은 「작전별 보기」에서 읽을 수 있어요.';
+  $('#planCrit').textContent=plan?PLAN_LV[plan]:'점수를 누르면 해당 기준이 여기에 보여요. 작전 3개를 나란히 보려면 「계획서 채점」을 눌러요.';
 
   const ex=store.exec[k]||(store.exec[k]={}), box=$('#stus'); box.innerHTML='';
   d.members.forEach(n=>{
@@ -789,7 +878,7 @@ function renderEvalView(){
 
 /* ---------- 큰 경기장 ---------- */
 const big=$('#big');
-function bigWidth(){const ww=$('#fwrap').clientWidth;const avail=Math.max(340,window.innerHeight-(document.body.classList.contains('show')?120:230));return Math.max(Math.min(ww,300),Math.floor(Math.min(ww,avail*W/H)));}
+function bigWidth(){const fw=$('#fwrap'),ww=fw.clientWidth,top=fw.getBoundingClientRect().top+window.scrollY;const avail=Math.max(340,window.innerHeight-top-14);return Math.max(Math.min(ww,280),Math.floor(Math.min(ww,avail*W/H)));}
 function drawBig(){
   if(grp==null||view!=='play') return;
   const p=curPlay(), rep=rec||(shownRep!=null?reps()[shownRep]:null);
@@ -811,7 +900,7 @@ function endDraw(e){
 big.addEventListener('pointerup',endDraw); big.addEventListener('pointercancel',endDraw);
 
 let rt=0;
-window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{if(grp!=null)drawBig();else drawThumbs();},120);});
+window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{if(grp==null)drawThumbs();else if(view==='plan')sizePlanView();else drawBig();},120);});
 /* ---------- 받아 오기 ---------- */
 function connStatus(msg){ $('#connSt').textContent=msg; }
 async function fetchReal(){
@@ -826,12 +915,12 @@ async function fetchReal(){
     const r=await fetch(url,{method:'POST',body:JSON.stringify({action:'plan_teacher',key}),headers:{'Content-Type':'text/plain;charset=utf-8'},redirect:'follow',signal:ctl?ctl.signal:undefined});
     clearTimeout(tm); const j=await r.json();
     if(!j.ok){ connStatus(j.msg||'받지 못했어요'); if(j.err==='key'){ lsDel('ff-review-key'); $('#keyBox').hidden=false; } return; }
-    REAL={teams:j.teams||[],plans:j.plans||[],closed:j.closed||'',at:new Date().toISOString()};
+    REAL={teams:j.teams||[],plans:j.plans||[],drafts:j.drafts||[],closed:j.closed||'',at:new Date().toISOString()};
     lsSet('ff-review-cache',JSON.stringify(REAL));
     if(Array.isArray(j.evals)){ SRV=true; mergeEvals(j.evals); rerender(); flushSoon(200); } else SRV=false;
     syncSt();
     connStatus('계획서 '+REAL.plans.length+'조 · 방금 받음'+(REAL.closed?' · 제출 마감: '+REAL.closed:''));
-    if(grp==null) renderOverview();
+    if(grp==null) renderOverview(); else if(DATA()[grp]&&DATA()[grp].plays) rerender();
   }catch(e){ failAt=Date.now(); syncSt();
     connStatus(REAL?('연결이 안 돼서 '+ago(REAL.at)+'에 받은 자료를 보여 줘요'):'저장소에 연결하지 못했어요. 인터넷을 확인해 주세요');
   }finally{ $('#btnRefresh').disabled=false; }
@@ -845,7 +934,7 @@ syncSt();
 fetchReal();
 window.addEventListener('online',()=>{ if(SRV===true) flushSoon(300); else fetchReal(); });
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden'&&Object.keys(store.out).length) flush(); });
-if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{if(grp!=null)drawBig();else drawThumbs();});
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{if(grp==null)drawThumbs();else if(view==='plan')sizePlanView();else drawBig();});
 })();
 </script>
 
